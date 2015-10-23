@@ -40,12 +40,12 @@ const int kSynchCompletion = 997;
 
 struct endpoint
 {
-	endpoint() {}
-	explicit endpoint(char const* str, unsigned short port);
+	endpoint();
+	explicit endpoint(const char* ipAddrStr, unsigned short port);
 	static constexpr size_t size() { return sizeof(buf); }
 	void const* addr() const { return buf; }
 private:
-	char buf[16];
+	char buf[128];
 };
 
 struct endpoint_name

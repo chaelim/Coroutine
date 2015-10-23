@@ -1,6 +1,7 @@
 #include "stdafx.h"
 
 #include <experimental\resumable>
+#include <future>
 #include "PAL.h"
 
 struct task {
@@ -41,11 +42,18 @@ namespace awaitable
 		{
 			OsTcpSocket sock;
 
+            Connection()
+            {
+                sock.Bind(endpoint{});
+                ThreadPool::AssociateHandle(sock.native_handle(),
+                    &detail::io_complete_callback);
+            }
+
 			Connection(OsTcpSocket && sock) : sock(std::move(sock)) {}
 
 
-			Connection() {
-				sock.Bind(endpoint{ "127.0.0.1", 0 });
+			Connection(endpoint ep) {
+				sock.Bind(ep);
 				ThreadPool::AssociateHandle(sock.native_handle(),
 					&detail::io_complete_callback);
 			}
@@ -109,8 +117,8 @@ namespace awaitable
 		{
 			OsTcpSocket sock;
 
-			Listener() {
-				sock.Bind(endpoint{ "127.0.0.1", 13 });
+			Listener(const char* ipAddrStr) {
+				sock.Bind(endpoint{ ipAddrStr, 13 });
 				ThreadPool::AssociateHandle(sock.native_handle(), &detail::io_complete_callback);
 				sock.Listen();
 			}
@@ -141,12 +149,12 @@ namespace awaitable
 		static auto Connect(const char* s, unsigned short port)
 		{
 			struct awaiter : detail::AwaiterBase {
-				Connection conn;
+                Connection conn;
 				endpoint ep;
 
-				awaiter(const char* s, unsigned short port) : ep(s, port) {}
+				awaiter(const char* s, unsigned short port) : ep(s, port) { }
 				bool await_ready() { return false; }
-				Connection await_resume() {
+                Connection await_resume() {
 					panic_if(!!this->err, "Connect failed");
 					return std::move(conn);
 				}
@@ -160,18 +168,21 @@ namespace awaitable
 		}
 	};
 
-	struct repost : detail::AwaiterBase {
-		bool await_ready() { return false; }
-		void await_resume() {}
-		void await_suspend(coroutine_handle<> h) {
-			this->resume = h;
-			ThreadPool::Post(this, 0, &detail::io_complete_callback);
-		}
-	};
+    auto Repost() { 
+	    struct repost : detail::AwaiterBase {
+		    bool await_ready() { return false; }
+		    void await_resume() {}
+		    void await_suspend(coroutine_handle<> h) {
+			    this->resume = h;
+			    ThreadPool::Post(this, 0 /* nBytes */, &detail::io_complete_callback);
+		    }
+	    };
+        return repost{};
+    }
 
-	task TcpReader(WorkTracker& trk, int64_t total) {
+	auto TcpReader(const char* ipAddrStr, WorkTracker& trk, int64_t total) -> std::future<void> {
 		char buf[ReaderSize];
-		auto conn = await Tcp::Connect("127.0.0.1", 13);
+		auto conn = await Tcp::Connect(ipAddrStr, 13);
 		while (total > 0) {
 			auto bytes = await conn.Read(buf, sizeof(buf));
 			if (bytes == 0) break;
@@ -180,33 +191,44 @@ namespace awaitable
 		trk.completed();
 	}
 
-	task ServeClient(Tcp::Connection conn) {
+	auto ServeClient(Tcp::Connection conn) -> std::future<void> {
 		char buf[WriterSize];
-		await repost();
+		await Repost();
 		for (;;) {
 			await conn.Write(buf, sizeof(buf));
 		}
 	}
 
-	task Server()
+	auto Server(const char* ipaddrStr) -> std::future<void>
 	{
-		Tcp::Listener s;
+		Tcp::Listener s(ipaddrStr);
 		for (;;) {
 			ServeClient(await s.Accept());
 		}
 	}
 
 
-	void run(int nReaders, uint64_t bytes, bool sync) {
-		printf("awaitable readers %d sync %d ", nReaders, sync);
+	void run_server(const char* ipaddrStr, int nWriters, uint64_t bytes, bool sync) {
+		printf("awaitable writers %d sync %d ", nWriters, sync);
 
-		ThreadPool q(nReaders * 2 + 8, sync);
-		WorkTracker trk(nReaders);
+		ThreadPool q(nWriters * 2 + 8, sync);
 
-		Server();
-		for (int i = 0; i < nReaders; ++i)
-			TcpReader(trk, bytes);
+		Server(ipaddrStr);
 
-		os_sleep(100 * 1000);
+		os_sleep(60 * 60 * 1000);
 	}
+
+    void run_client(const char* ipaddrStr, int nReaders, uint64_t bytes, bool sync)
+    {
+        printf("awaitable readers %d sync %d ", nReaders, sync);
+
+        ThreadPool q(nReaders * 2 + 8, sync);
+        WorkTracker trk(nReaders);
+
+        for (int i = 0; i < nReaders; ++i)
+            TcpReader(ipaddrStr, trk, bytes);
+
+        os_sleep(60 * 60 * 1000);
+    }
+
 }

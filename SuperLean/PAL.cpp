@@ -3,6 +3,7 @@
 #define _WINSOCK_DEPRECATED_NO_WARNINGS
 #include <winsock2.h>
 #include <Mswsock.h>
+#include <Ws2ipdef.h>
 #include <mstcpip.h>
 #include <atomic>
 
@@ -46,17 +47,52 @@ void os_sleep(int ms)
 
 #pragma comment(lib, "Ws2_32.lib")
 
-endpoint::endpoint(char const* str, unsigned short port)
+static bool ParseIp(const char* ipAddrStr, SOCKADDR_STORAGE* ipAddr, int* ipLength)
 {
-	auto thisHost = gethostbyname(str);
-	auto ip = inet_ntoa(*(struct in_addr *) *thisHost->h_addr_list);
-	sockaddr_in& service = *(sockaddr_in*)(addr());
+    ipAddr->ss_family = AF_INET;
+    if (WSAStringToAddressA(const_cast<char*>(ipAddrStr), AF_INET, NULL, (LPSOCKADDR)ipAddr, ipLength) == 0)
+        return true;
 
-	static_assert(sizeof(sockaddr_in) == size(), "endpoint size != sockaddr_in size");
+    ipAddr->ss_family = AF_INET6;
+    return (WSAStringToAddressA(const_cast<char*>(ipAddrStr), AF_INET6, NULL, (LPSOCKADDR)ipAddr, ipLength) == 0);
+}
 
-	service.sin_family = AF_INET;
-	service.sin_addr.s_addr = inet_addr(ip);
-	service.sin_port = htons(port);
+endpoint::endpoint()
+{
+    SOCKADDR_STORAGE* sockaddrbuf = (SOCKADDR_STORAGE*) addr();
+    ZeroMemory(sockaddrbuf, size());
+
+    sockaddr_in* addr = (sockaddr_in*)sockaddrbuf;
+    addr->sin_family = AF_INET;
+    addr->sin_addr.s_addr = INADDR_ANY;
+    addr->sin_port = 0;
+}
+
+endpoint::endpoint(const char* ipAddrStr, unsigned short port)
+{
+    static_assert(sizeof(SOCKADDR_STORAGE) == size(), "endpoint size != sockaddr_in size");
+
+    SOCKADDR_STORAGE* ipAddr = (SOCKADDR_STORAGE*) addr();
+    int sockaddrLen = size();
+    ZeroMemory(ipAddr, sockaddrLen);
+    if (!ParseIp(ipAddrStr, ipAddr, &sockaddrLen))
+    {
+        printf("IP address parse failed\n");
+        return;
+    }
+    ((sockaddr_in *)ipAddr)->sin_port = htons(port);
+    //char computername[64];
+    //DWORD len = _countof(computername);
+    //GetComputerNameA(computername, &len);
+	//auto thisHost = gethostbyname(computername);
+	//auto ip = inet_ntoa(*(struct in_addr *) *thisHost->h_addr_list);
+	//sockaddr_in& service = *(sockaddr_in*)(addr());
+
+	//static_assert(sizeof(sockaddr_in) == size(), "endpoint size != sockaddr_in size");
+
+	//service.sin_family = AF_INET;
+	//service.sin_addr.s_addr = inet_addr(ip);
+	//service.sin_port = htons(port);
 }
 
 struct SocketStarter
@@ -169,7 +205,7 @@ struct CompletionQueue
 };
 
 void OsTcpSocket::Listen() {
-	auto iResult = ::listen(handle_, 100);
+	auto iResult = ::listen(handle_, SOMAXCONN);
 	panic_if(iResult == SOCKET_ERROR, "listen failed with error");
 }
 
@@ -177,8 +213,11 @@ void OsTcpSocket::Listen() {
 std::error_code OsTcpSocket::Connect(endpoint const& ep, os_async_context* o)
 {
 	DWORD unused;
+    const sockaddr * addr = (const sockaddr*) ep.addr();
+    int sockaddrSize = addr->sa_family == AF_INET ?  sizeof(SOCKADDR) : sizeof(SOCKADDR_IN6);
+
 	auto ok = (*startSockets.ConnectExPtr)(
-		handle_, (const sockaddr*)ep.addr(), (int)ep.size(),
+		handle_, addr, sockaddrSize,
 		nullptr, 0,
 		&unused,
 		(OVERLAPPED*)o
@@ -341,7 +380,6 @@ SocketStarter::SocketStarter()
 		&wsaProtocolInfoSize);
 	panic_if(iResult == SOCKET_ERROR, "SOL_SOCKET");
 
-	//syncCompletion = false;
 	syncCompletion = (wsaProtocolInfo.dwServiceFlags1 & XP1_IFS_HANDLES) != 0;
 }
 

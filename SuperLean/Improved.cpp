@@ -151,11 +151,11 @@ namespace improved {
 
 			void Connect(char const* str, unsigned short port, std::unique_ptr<detail::OverlappedBase> o)
 			{
-				sock.Bind(endpoint{ "127.0.0.1", 0 });
+				sock.Bind(endpoint{});
 				ThreadPool::AssociateHandle(sock.native_handle(),
 					&detail::io_complete_callback);
 
-				sock.Connect(endpoint("127.0.0.1", 13), o.get());
+				sock.Connect(endpoint(str, 13), o.get());
 
 				o.release();
 			}
@@ -164,8 +164,8 @@ namespace improved {
 
 		struct Listener
 		{
-			Listener() {
-				endpoint ep("127.0.0.1", 13);
+			Listener(const char* ipAddrStr) {
+				endpoint ep(ipAddrStr, 13);
 				sock.Bind(ep);
 				ThreadPool::AssociateHandle(sock.native_handle(), &detail::io_complete_callback);
 				sock.Listen();
@@ -208,12 +208,13 @@ namespace improved {
 			wo = detail::make_handler_with_size_t(
 				[this](auto ec, int nBytes) { this->OnRead(ec, nBytes); });
 		}
-		static void start(WorkTracker& trk, int64_t total);
+		static void start(const char* ipaddrStr, WorkTracker& trk, int64_t total);
 	};
 
-	void tcp_reader::start(WorkTracker& trk, int64_t total) {
+	/* static */
+    void tcp_reader::start(const char* ipaddrStr, WorkTracker& trk, int64_t total) {
 		auto p = std::make_unique<tcp_reader>(trk, total);
-		p->conn.Connect("127.0.0.1", 13,
+		p->conn.Connect(ipaddrStr, 13,
 			[raw = p.get()](auto ec, auto) { raw->OnConnect(ec); });
 		p.release(); // operation launched. let it fly
 	}
@@ -287,6 +288,7 @@ namespace improved {
 
 	struct Server
 	{
+        Server(const char* ipaddrStr) : sock(ipaddrStr) { }
 		void Start()
 		{
 			sock.Accept([this](auto ec, auto b) { OnAccept(ec, std::move(b)); });
@@ -301,19 +303,27 @@ namespace improved {
 		Tcp::Listener sock;
 	};
 
-	void run(int nReaders, uint64_t bytes, bool sync)
+    void run_server(const char* ipaddrStr, int nWriters, uint64_t bytes, bool sync)
+    {
+        ThreadPool q(nWriters * 2 + 8, sync);
+        WorkTracker trk(nWriters);
+
+        Server server(ipaddrStr);
+        server.Start();
+
+        printf("improved writer %d sync %d ", nWriters, sync);
+        os_sleep(60 * 60 * 1000);
+    }
+
+	void run_client(const char* ipaddrStr, int nReaders, uint64_t bytes, bool sync)
 	{
 		ThreadPool q(nReaders * 2 + 8, sync);
-
 		WorkTracker trk(nReaders);
 
 		for (int i = 0; i < nReaders; ++i)
-			tcp_reader::start(trk, bytes);
-
-		Server server;
-		server.Start();
+			tcp_reader::start(ipaddrStr, trk, bytes);
 
 		printf("improved readers %d sync %d ", nReaders, sync);
-		os_sleep(120 * 1000);
+		os_sleep(60 * 60 * 1000);
 	}
 }
