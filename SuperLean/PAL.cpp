@@ -199,7 +199,7 @@ struct CompletionQueue
 
 	int threadCount;
 	std::atomic<int> count;
-	HANDLE t[64];
+	HANDLE t[ThreadPool::MAX_THREADS];
 
 	HANDLE iocp;
 };

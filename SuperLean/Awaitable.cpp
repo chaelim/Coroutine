@@ -1,7 +1,7 @@
 #include "stdafx.h"
 
 #include <experimental\resumable>
-#include <future>
+#include <algorithm>
 #include "PAL.h"
 
 struct task {
@@ -180,7 +180,7 @@ namespace awaitable
         return repost{};
     }
 
-	auto TcpReader(const char* ipAddrStr, WorkTracker& trk, int64_t total) -> std::future<void> {
+    task TcpReader(const char* ipAddrStr, WorkTracker& trk, int64_t total) {
 		char buf[ReaderSize];
 		auto conn = await Tcp::Connect(ipAddrStr, 13);
 		while (total > 0) {
@@ -191,7 +191,7 @@ namespace awaitable
 		trk.completed();
 	}
 
-	auto ServeClient(Tcp::Connection conn) -> std::future<void> {
+    task ServeClient(Tcp::Connection conn) {
 		char buf[WriterSize];
 		await Repost();
 		for (;;) {
@@ -199,7 +199,7 @@ namespace awaitable
 		}
 	}
 
-	auto Server(const char* ipaddrStr) -> std::future<void>
+    task Server(const char* ipaddrStr)
 	{
 		Tcp::Listener s(ipaddrStr);
 		for (;;) {
@@ -208,10 +208,10 @@ namespace awaitable
 	}
 
 
-	void run_server(const char* ipaddrStr, int nWriters, uint64_t bytes, bool sync) {
-		printf("awaitable writers %d sync %d ", nWriters, sync);
+	void run_server(const char* ipaddrStr, int nThreads, uint64_t bytes, bool sync) {
+		printf("awaitable server: threads=%d, sync=%d ", nThreads, sync);
 
-		ThreadPool q(nWriters * 2 + 8, sync);
+		ThreadPool q(std::min(nThreads, ThreadPool::MAX_THREADS), sync);
 
 		Server(ipaddrStr);
 
@@ -220,9 +220,9 @@ namespace awaitable
 
     void run_client(const char* ipaddrStr, int nReaders, uint64_t bytes, bool sync)
     {
-        printf("awaitable readers %d sync %d ", nReaders, sync);
+        printf("awaitable client: readers=%d, sync=%d ", nReaders, sync);
 
-        ThreadPool q(nReaders * 2 + 8, sync);
+        ThreadPool q(std::min(nReaders * 2, ThreadPool::MAX_THREADS), sync);
         WorkTracker trk(nReaders);
 
         for (int i = 0; i < nReaders; ++i)

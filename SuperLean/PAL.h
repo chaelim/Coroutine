@@ -103,6 +103,7 @@ private:
 
 struct ThreadPool
 {
+    const static int MAX_THREADS = 64;
 	static void AssociateHandle(native_handle_t h, LPFN_COMPLETION_PROC);
 	static void Post(os_async_context*, int nBytes, LPFN_COMPLETION_PROC);
 	static void Stop();

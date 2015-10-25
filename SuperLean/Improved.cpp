@@ -3,6 +3,7 @@
 #include <memory>
 #include <system_error>
 #include <atomic>
+#include <algorithm>
 
 namespace improved {
 	namespace detail
@@ -303,27 +304,26 @@ namespace improved {
 		Tcp::Listener sock;
 	};
 
-    void run_server(const char* ipaddrStr, int nWriters, uint64_t bytes, bool sync)
+    void run_server(const char* ipaddrStr, int nThreads, uint64_t bytes, bool sync)
     {
-        ThreadPool q(nWriters * 2 + 8, sync);
-        WorkTracker trk(nWriters);
+        ThreadPool q(std::min(nThreads * 2, ThreadPool::MAX_THREADS), sync);
 
         Server server(ipaddrStr);
         server.Start();
 
-        printf("improved writer %d sync %d ", nWriters, sync);
+        printf("improved server: threads=%d, sync=%d ", nThreads, sync);
         os_sleep(60 * 60 * 1000);
     }
 
 	void run_client(const char* ipaddrStr, int nReaders, uint64_t bytes, bool sync)
 	{
-		ThreadPool q(nReaders * 2 + 8, sync);
+		ThreadPool q(std::min(nReaders * 2, ThreadPool::MAX_THREADS), sync);
 		WorkTracker trk(nReaders);
 
 		for (int i = 0; i < nReaders; ++i)
 			tcp_reader::start(ipaddrStr, trk, bytes);
 
-		printf("improved readers %d sync %d ", nReaders, sync);
+		printf("improved client: readers=%d, sync=%d ", nReaders, sync);
 		os_sleep(60 * 60 * 1000);
 	}
 }
