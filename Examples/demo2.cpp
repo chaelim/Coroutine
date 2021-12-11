@@ -1,5 +1,5 @@
 //
-//  Compiler: cl /await /Zi /Fe.\_build\ demo1.cpp 
+//  Compiler: cl /std:c++latest /await /Zi /Fe.\_build\ demo2.cpp 
 //
 
 #include <windows.h>
