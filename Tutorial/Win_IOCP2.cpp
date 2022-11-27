@@ -1,14 +1,13 @@
 /*
-* https://www.scs.stanford.edu/~dm/blog/c++-coroutines.html
-* g++ -fcoroutines -std=c++20 -Wall -Werror tutorial1.cpp
-* clang++ -std=c++20 -stdlib=libc++ -fcoroutines-ts -Wall -Werror tutorial1.cpp
 * msvc: cl /O2 /GS- /std:c++20 /await:strict /await:heapelide /Zi /EHsc /Fe.\_build\ tutorial1.cpp
+* Add "/FAcs" for .asm
 */
 
 #include <algorithm>
 #include <atomic>
 #include <coroutine>
 #include <cstdio>
+#include <system_error>
 #include <thread>
 #include <windows.h>
 
@@ -17,13 +16,14 @@ inline void PrintThreadIdLog(const char* msg)
     printf("Coroutine %s on thread: %u\n", msg, GetCurrentThreadId());
 }
 
+// std::thread::hardware_concurrency()
 static unsigned GetIdealThreadCount() noexcept
 {
     DWORD_PTR dwAffinity, dwAffinitySystem;
     if (!GetProcessAffinityMask(GetCurrentProcess(), &dwAffinity, &dwAffinitySystem))
         return 1;
 
-    DWORD threadCount = 0;
+    unsigned threadCount = 0;
 
     while (dwAffinity != 0)
     {
@@ -37,32 +37,47 @@ static unsigned GetIdealThreadCount() noexcept
 class CThreadPool final
 {
 private:
+    static constexpr unsigned MIN_THREAD_COUNT = 2;
     static constexpr unsigned MAX_THREAD_COUNT = 32;
 
 public:
-    CThreadPool() noexcept :
-        m_hIOPort(::CreateIoCompletionPort(INVALID_HANDLE_VALUE, NULL, 0, 0))
+    CThreadPool() :
+        m_threadPool(::CreateThreadpool(nullptr))
     {
-        const unsigned idealThreadCount = GetIdealThreadCount();
-        m_threadCount = std::min<unsigned>(idealThreadCount, MAX_THREAD_COUNT);
-
-        for (unsigned i = 0; i < m_threadCount; i++)
+        if (m_threadPool == nullptr)
         {
-            m_threads[i] = CreateThread(
-                NULL,
-                0,
-                &CThreadPool::ThreadProc,
-                (LPVOID)this,
-                0,
-                NULL
-            );
+            DWORD errorCode = ::GetLastError();
+            throw(std::system_error{static_cast<int>(errorCode), std::system_category(), "CreateThreadPool()"});
+        }
+
+        const unsigned idealThreadCount = GetIdealThreadCount();
+        auto maxThreadCount = std::max<unsigned>(idealThreadCount, MIN_THREAD_COUNT);
+
+        ::SetThreadpoolThreadMaximum(m_threadPool, maxThreadCount);
+        if (!::SetThreadpoolThreadMinimum(m_threadPool, MIN_THREAD_COUNT))
+        {
+            DWORD errorCode = ::GetLastError();
+            ::CloseThreadpool(m_threadPool);
+            throw(std::system_error{static_cast<int>(errorCode), std::system_category(), "SetThreadpoolThreadMinimum()"});
+        }
+
+        m_hIOPort = ::CreateIoCompletionPort(INVALID_HANDLE_VALUE, nullptr, 0, 0);
+        if (m_hIOPort == nullptr)
+        {
+            DWORD errorCode = ::GetLastError();
+            ::CloseThreadpool(m_threadPool);
+            throw(std::system_error{static_cast<int>(errorCode), std::system_category(), "CreateIoCompletionPort()"});
         }
     }
 
     ~CThreadPool() noexcept
     {
         // At this point, all thread pool threads should have exited
-        CloseHandle(m_hIOPort);
+        if (m_hIOPort != nullptr)
+            ::CloseHandle(m_hIOPort);
+
+        if (m_threadPool == nullptr)
+            ::CloseThreadpool(m_threadPool);
     }
 
     void ScheduleAwaiter(std::coroutine_handle<>* pHandle) noexcept
@@ -70,7 +85,7 @@ public:
         ::PostQueuedCompletionStatus(
             m_hIOPort,
             0,
-            reinterpret_cast<ULONG_PTR>(pHandle->address()), /* dwCompletionKey */
+            reinterpret_cast<ULONG_PTR>(pHandle->address()), // dwCompletionKey
             nullptr);
     }
 
@@ -81,7 +96,7 @@ public:
         for (unsigned i = 0; i < m_threadCount; i++)
         {
             // Queue null op to wake up a thread
-            PostQueuedCompletionStatus(
+            ::PostQueuedCompletionStatus(
                 m_hIOPort,
                 0,
                 NULL,
@@ -159,9 +174,11 @@ public:
 
 private:
     HANDLE m_hIOPort;
+    TP_CALLBACK_ENVIRON environ_;
+    PTP_WORK work_;
+    PTP_POOL m_threadPool;
     unsigned m_threadCount{};
     std::atomic<bool> m_shutdown{ false };
-
     HANDLE m_threads[MAX_THREAD_COUNT];
 };
 
@@ -171,10 +188,10 @@ struct ReturnObject
     struct promise_type
     {
         ReturnObject get_return_object() { return {}; }
-        std::suspend_never initial_suspend() { return {}; }
+        std::suspend_never initial_suspend() const noexcept { return {}; }
         std::suspend_never final_suspend() noexcept { return {}; }
-        void return_void() {}
-        void unhandled_exception() {}
+        void return_void() noexcept {}
+        void unhandled_exception() noexcept {}
     };
 };
 

@@ -8,8 +8,7 @@
 #include <coroutine>
 #include <iostream>
 
-// 
-
+// Promise Interface
 struct ReturnObject
 {
     struct promise_type
@@ -22,6 +21,7 @@ struct ReturnObject
     };
 };
 
+// Awaitable Interface
 struct Awaiter
 {
     std::coroutine_handle<> *m_pHandle;

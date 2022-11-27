@@ -5,6 +5,41 @@
 * msvc cl /O2 /GS- /std:c++20 /await:strict /await:heapelide /Zi /EHsc /Fe.\_build\ corodemo.cc
 */
 
+// References
+//  * https://en.cppreference.com/w/cpp/language/coroutines
+//  * https://lewissbaker.github.io/2022/08/27/understanding-the-compiler-transform
+
+/* 
+  D:\Github\Coroutine\Examples>_build\corodemo.exe
+
+  In main1 function
+  counter: 0
+  In main1 function
+  counter: 1
+  In main1 function
+  counter: 2
+  
+  In main2 function
+  counter2: 0
+  In main2 function
+  counter2: 1
+  In main2 function
+  counter2: 2
+  counter3: 0
+  counter3: 1
+  counter3: 2
+  counter4: 0
+  counter4: 1
+  counter4: 2
+  counter5: 0
+  counter5: 1
+  counter5: 2
+  promise_type destroyed
+  counter6: 0
+  counter6: 1
+  counter6: 2
+*/
+
 //#include <concepts>
 #include <coroutine>
 //#include <exception>
@@ -55,7 +90,7 @@ void main1()
   
   for (int i = 0; i < 3; ++i) {
     std::cout << "In main1 function\n";
-    h(); // calling coroutine_handle will resume the counter coroutine
+    h(); // calling coroutine_handle will resume the counter coroutine. Resume 3 time.
   }
   
   h.destroy();
@@ -67,6 +102,7 @@ struct ReturnObject2
   {
     ReturnObject2 get_return_object()
     {
+      // Instantiates a ReturnObject2
       return {
         // Uses C++20 designated initializer
         .h_ = std::coroutine_handle<promise_type>::from_promise(*this)
@@ -256,11 +292,13 @@ struct Generator {
     std::suspend_always initial_suspend() { return {}; }
     std::suspend_always final_suspend() noexcept { return {}; }
     void unhandled_exception() { exception_ = std::current_exception(); }
+    
     template<std::convertible_to<T> From> // C++20 concept
     std::suspend_always yield_value(From &&from) {
       value_ = std::forward<From>(from);
       return {};
     }
+
     void return_void() {}
   };
 

@@ -180,6 +180,8 @@ namespace awaitable
         return repost{};
     }
 
+	// Coroutine: What the benefits?
+	// buf memory stays 
     task TcpReader(const char* ipAddrStr, WorkTracker& trk, int64_t total) {
 		char buf[ReaderSize];
 		auto conn = await Tcp::Connect(ipAddrStr, 13);

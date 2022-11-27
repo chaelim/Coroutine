@@ -1,7 +1,7 @@
 //
 //  Compile commandline
 //  cl /std:c++latest /Zi /Fe.\_build\ demo1.cpp
-//
+//  Add "/FAcs" for .asm
 
 #include <coroutine>
 #include <memory>
