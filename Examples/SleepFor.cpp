@@ -44,8 +44,9 @@ public:
 
 std::future<void> test(int id)
 {
-    using namespace std::chrono_literals;
+    printf("%03d(%04x): entering test\n", id, GetCurrentThreadId());
 
+    using namespace std::chrono_literals;
 
     // Wait until main() signals
     // NOTE:
@@ -53,9 +54,9 @@ std::future<void> test(int id)
     // I can create awaitable wait_for_signal function but that still needs to create a thread
     // or using a thread in thread pool.
     // Can I use IOCP for this purpose? main() posts an signal event to IOCP and an IOCP thread's
-    // callback will resume the wait_for_signal. -CSLIM
-    // while (!g_signaled)
-    // await sleep_for(1ms);
+    // callback will resume the wait_for_signal. Awaitable events? -CSLIM
+    while (!g_signaled)
+        co_await sleep_for(1ms);
 
     printf("%03d(%04x): sleeping...\n", id, GetCurrentThreadId());
     co_await sleep_for(10ms);
@@ -64,15 +65,78 @@ std::future<void> test(int id)
     printf("%03d(%04x): ok. you woke me up again. I am out of here\n", id, GetCurrentThreadId());
 }
 
+/*
+
+https://devblogs.microsoft.com/oldnewthing/20210303-00/?p=104922
+
+struct awaitable_event
+{
+  void set() const { shared->set(); }
+
+  auto await_ready() const noexcept
+  {
+    return shared->await_ready();
+  }
+
+  auto await_suspend(
+    std::experimental::coroutine_handle<> handle) const
+  {
+    return shared->await_suspend(handle);
+  }
+
+  auto await_resume() const noexcept
+  {
+    return shared->await_resume();
+  }
+
+private:
+  struct state
+  {
+    std::atomic<bool> signaled = false;
+    winrt::slim_mutex mutex;
+    std::vector<std::experimental::coroutine_handle<>> waiting;
+
+    void set()
+    {
+      std::vector<std::experimental::coroutine_handle<>> ready;
+      {
+        auto guard = winrt::slim_lock_guard(mutex);
+        signaled.store(true, std::memory_order_relaxed);
+        std::swap(waiting, ready);
+      }
+      for (auto&& handle : ready) handle();
+    }
+
+    bool await_ready() const noexcept
+    { return signaled.load(std::memory_order_relaxed); }
+
+    bool await_suspend(
+      std::experimental::coroutine_handle<> handle)
+    {
+      auto guard = winrt::slim_lock_guard(mutex);
+      if (signaled.load(std::memory_order_relaxed)) return false;
+      waiting.push_back(handle);
+      return true;
+    }
+
+    void await_resume() const noexcept { }
+  };
+
+  std::shared_ptr<state> shared = std::make_shared<state>();
+};
+*/
+
 void main()
 {
     std::vector<std::future<void>> futures;
     
+    printf("Main thread id = %04x\n", GetCurrentThreadId());
+
     for (int i = 0; i < 100; i++)
         futures.push_back(test(i));
     
     g_signaled = true;
-    
+
     for (auto &f : futures)
         f.get();
 }

@@ -1,0 +1,38 @@
+SuperLean_improved.exe -c 10.130.14.138 -n 1 -y
+1000M improved readers 1 sync 1 Measured: 8.112826 seconds
+
+SuperLean_awaitable.exe -c 10.130.14.138 -n 1 -y
+1000M awaitable readers 1 sync 1 Measured: 8.092946 seconds
+
+SuperLean_improved.exe -c 10.130.14.138 -n 2 -y
+1000M improved readers 2 sync 1 Measured: 15.401353 seconds
+
+SuperLean_awaitable.exe -c 10.130.14.138 -n 2 -y
+1000M awaitable readers 2 sync 1 Measured: 15.807644 seconds
+
+SuperLean_improved.exe -c 10.130.14.138 -n 4 -y
+1000M improved readers 4 sync 1 Measured: 30.311660 seconds
+
+SuperLean_awaitable.exe -c 10.130.14.138 -n 4 -y
+1000M awaitable readers 4 sync 1 Measured: 30.165422 seconds
+
+SuperLean_improved.exe -c 10.130.14.138
+1000M improved readers 5 sync 0 Measured: 42.491603 seconds
+
+SuperLean.exe -c 10.130.14.138
+1000M awaitable readers 5 sync 0 Measured: 37.866565 seconds
+
+SuperLean_improved.exe -c 10.130.14.138 -n 16
+1000M improved readers 16 sync 0 Measured: 136.003796 seconds
+
+SuperLean_awaitable.exe -c 10.130.14.138 -n 16
+1000M awaitable readers 16 sync 0 Measured: 120.400624 seconds
+
+SuperLean_improved.exe -c 10.130.14.138 -n 10 -y
+1000M improved readers 10 sync 1 Measured: 75.754743 seconds
+
+SuperLean_awaitable.exe -c 10.130.14.138 -n 10 -y
+1000M awaitable readers 10 sync 1 Measured: 76.266620 seconds
+
+SuperLean_awaitable.exe -c 10.130.14.138 -n 10 -y
+1000M awaitable readers 10 sync 1 Measured: 73.963742 seconds

@@ -40,10 +40,13 @@ auto operator co_await(LIST_ENTRY &q) { return Dequeue(q); }
 std::future<void> f(int no)
 {
     auto result = co_await g_someQueue;
-    printf("%d: got %d\n", no, result);
+    printf("%03d(%04x): got %d\n", no, GetCurrentThreadId(), result);
 }
 
-int main() {
+int main()
+{
+    printf("Main thread id = %04x\n", GetCurrentThreadId());
+
     InitializeListHead(&g_someQueue);
 
     for (int i = 0; i < 5; ++i)

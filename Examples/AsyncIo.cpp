@@ -14,4 +14,7 @@ std::future<int> tcp_reader(int total)
     co_return result;
 }
 
-int main() { tcp_reader(1000 * 1000 * 1000).get(); } 
+int main()
+{
+    tcp_reader(1000 * 1000 * 1000).get();
+} 
