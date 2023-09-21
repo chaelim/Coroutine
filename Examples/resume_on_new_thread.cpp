@@ -56,5 +56,5 @@ int main()
   std::jthread out;
   resuming_on_new_thread(out);
   std::cout << "End of main thread: " << std::this_thread::get_id() << '\n';
-  // Main thead will wait until the "out" thread exit. std::jthread::join() called from the D'tor.
+  // Main thead will wait until the "out" thread exit. std::jthread::join() called from the std::jthread's D'tor.
 }
