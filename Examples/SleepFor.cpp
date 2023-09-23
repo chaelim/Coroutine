@@ -1,48 +1,77 @@
 #include <system_error>
 #include <chrono>
-#include <future>
 #include <cstdio>
-#include <experimental/coroutine>
+#include <coroutine>
 #include <assert.h>
+#include <vector>
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <threadpoolapiset.h>
-using namespace std::experimental;
+//using namespace std::experimental;
 
 std::atomic<bool> g_signaled = false;
 
-static void TimerCallback(PTP_CALLBACK_INSTANCE, void* Context, PTP_TIMER)
-{
-    coroutine_handle<>::from_address(Context).resume();
-}
-
-class sleep_for
+class Awaiter
 {
 private:
+    static void TimerCallback(PTP_CALLBACK_INSTANCE, void* context, PTP_TIMER)
+    {
+        std::coroutine_handle<>::from_address(context).resume();
+    }
+
     PTP_TIMER m_timer = nullptr;
     std::chrono::system_clock::duration m_duration;
     
 public:
-    explicit sleep_for(std::chrono::system_clock::duration d) : m_duration(d) { }
+    explicit Awaiter(std::chrono::system_clock::duration d) : m_duration(d) { }
 
     bool await_ready() const { return m_duration.count() <= 0; }
     void await_resume() {}
-    void await_suspend(std::experimental::coroutine_handle<> coro)
+    void await_suspend(std::coroutine_handle<> coro)
     {
         int64_t relative_count = -m_duration.count();
         m_timer = CreateThreadpoolTimer(&TimerCallback, coro.address(), nullptr);
         assert(m_timer && "terrible, just terrible");
         SetThreadpoolTimer(m_timer, (PFILETIME)&relative_count, 0, 0);
     }
-    ~sleep_for()
+    ~Awaiter()
     {
         if (m_timer)
             CloseThreadpoolTimer(m_timer);
     }
 };
 
-std::future<void> test(int id)
+auto sleep_for(std::chrono::system_clock::duration duration) {
+  return Awaiter{duration};
+}
+
+struct ReturnObject
+{
+    struct promise_type
+    {
+        ReturnObject get_return_object()
+        {
+            return {
+              .h_ = std::coroutine_handle<promise_type>::from_promise(*this)
+            };
+        }
+        std::suspend_never initial_suspend() const noexcept { return {}; }
+
+        // final_suspend() needs to return std::suspend_always to use the coroutine_handle
+        // See co_return section at https://www.scs.stanford.edu/~dm/blog/c++-coroutines.html#the-co_return-operator
+        std::suspend_always final_suspend() noexcept { return {}; }
+        void return_void() noexcept {}
+        void unhandled_exception() noexcept {}
+    };
+
+    std::coroutine_handle<promise_type> h_;
+    operator std::coroutine_handle<promise_type>() const { return h_; }
+    // A coroutine_handle<promise_type> converts to coroutine_handle<>
+    operator std::coroutine_handle<>() const { return h_; }
+};
+
+ReturnObject test(int id)
 {
     printf("%03d(%04x): entering test\n", id, GetCurrentThreadId());
 
@@ -63,6 +92,8 @@ std::future<void> test(int id)
     printf("%03d(%04x): woke up ... going to sleep again...\n", id, GetCurrentThreadId());
     co_await sleep_for(10ms);;
     printf("%03d(%04x): ok. you woke me up again. I am out of here\n", id, GetCurrentThreadId());
+
+    //co_return;
 }
 
 /*
@@ -126,9 +157,29 @@ private:
 };
 */
 
-void main()
+int main()
 {
-    std::vector<std::future<void>> futures;
+    std::vector< std::coroutine_handle<>> coro_handles;
+
+    for (unsigned i = 0; i < 100; ++i)
+        coro_handles.push_back(test(i));
+
+    g_signaled = true;
+
+    for (unsigned i = 0; i < 100; ++i)
+    {
+        while (!coro_handles[i].done())
+        {
+            Sleep(10);
+        }
+
+        coro_handles[i].destroy();
+
+        printf("%03d: Done\n", i);
+    }
+    
+    /*
+    std::vector<ReturnObject> futures;
     
     printf("Main thread id = %04x\n", GetCurrentThreadId());
 
@@ -139,4 +190,7 @@ void main()
 
     for (auto &f : futures)
         f.get();
+    */
+
+    return 0;
 }

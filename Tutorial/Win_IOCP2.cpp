@@ -9,6 +9,7 @@
 #include <cstdio>
 #include <system_error>
 #include <thread>
+#include <vector>
 #include <windows.h>
 
 inline void PrintThreadIdLog(const char* msg)
@@ -61,20 +62,20 @@ public:
             throw(std::system_error{static_cast<int>(errorCode), std::system_category(), "SetThreadpoolThreadMinimum()"});
         }
 
-        m_hIOPort = ::CreateIoCompletionPort(INVALID_HANDLE_VALUE, nullptr, 0, 0);
-        if (m_hIOPort == nullptr)
-        {
-            DWORD errorCode = ::GetLastError();
-            ::CloseThreadpool(m_threadPool);
-            throw(std::system_error{static_cast<int>(errorCode), std::system_category(), "CreateIoCompletionPort()"});
-        }
+        //m_hIOPort = ::CreateIoCompletionPort(INVALID_HANDLE_VALUE, nullptr, 0, 0);
+        //if (m_hIOPort == nullptr)
+        //{
+        //    DWORD errorCode = ::GetLastError();
+        //    ::CloseThreadpool(m_threadPool);
+        //    throw(std::system_error{static_cast<int>(errorCode), std::system_category(), "CreateIoCompletionPort()"});
+       // }
     }
 
     ~CThreadPool() noexcept
     {
         // At this point, all thread pool threads should have exited
-        if (m_hIOPort != nullptr)
-            ::CloseHandle(m_hIOPort);
+        //if (m_hIOPort != nullptr)
+        //    ::CloseHandle(m_hIOPort);
 
         if (m_threadPool == nullptr)
             ::CloseThreadpool(m_threadPool);
@@ -82,94 +83,20 @@ public:
 
     void ScheduleAwaiter(std::coroutine_handle<>* pHandle) noexcept
     {
-        ::PostQueuedCompletionStatus(
-            m_hIOPort,
-            0,
-            reinterpret_cast<ULONG_PTR>(pHandle->address()), // dwCompletionKey
-            nullptr);
+        // TODO: Use CloseThreadpoolWork
+        //::PostQueuedCompletionStatus(
+        //    m_hIOPort,
+        //    0,
+        //    reinterpret_cast<ULONG_PTR>(pHandle->address()), // dwCompletionKey
+        //    nullptr);
     }
 
     void StartShutDown() noexcept
     {
-        m_shutdown = true;
-
-        for (unsigned i = 0; i < m_threadCount; i++)
-        {
-            // Queue null op to wake up a thread
-            ::PostQueuedCompletionStatus(
-                m_hIOPort,
-                0,
-                NULL,
-                NULL
-            );
-        }
     }
 
     void Shutdown() noexcept
     {
-        for (unsigned i = 0; i < m_threadCount; i++)
-        {
-            WaitForSingleObject(m_threads[i], INFINITE);
-            m_threads[i] = NULL;
-        }
-
-        m_threadCount = 0;
-    }
-
-    void ForceShutdown() noexcept
-    {
-        for (unsigned i = 0; i < m_threadCount; i++)
-        {
-            if (WaitForSingleObject(m_threads[i], 200) == WAIT_TIMEOUT)
-            {
-                TerminateThread(m_threads[i], 0);
-            }
-
-            m_threads[i] = NULL;
-        }
-
-        m_threadCount = 0;
-    }
-
-    static DWORD WINAPI ThreadProc(LPVOID lpParameter)
-    {
-        CThreadPool* threadPool = (CThreadPool*)lpParameter;
-
-        while (!threadPool->m_shutdown.load(std::memory_order::relaxed))
-        {
-            OVERLAPPED* overlapped;
-            ULONG_PTR completionKey;
-            DWORD bytes;
-            if (GetQueuedCompletionStatus(
-                threadPool->m_hIOPort,
-                &bytes,
-                (PULONG_PTR)&completionKey,
-                &overlapped,
-                INFINITE))
-            {
-                if (completionKey != 0)
-                    std::coroutine_handle<>::from_address(reinterpret_cast<void*>(completionKey)).resume();
-            }
-            /*
-            else
-            {
-                DWORD hr = GetLastError();
-                if (hr == ERROR_MORE_DATA)
-                {
-                    appErrorf(TEXT("Not enough pipe read buffer"));
-                }
-                else if (hr == ERROR_BROKEN_PIPE)
-                {
-                    debugf(
-                        NAME_IpcRpc,
-                        TEXT("Pipe closed")
-                    );
-                }
-            }
-            */
-        }
-
-        return 0;
     }
 
 private:
@@ -177,9 +104,7 @@ private:
     TP_CALLBACK_ENVIRON environ_;
     PTP_WORK work_;
     PTP_POOL m_threadPool;
-    unsigned m_threadCount{};
     std::atomic<bool> m_shutdown{ false };
-    HANDLE m_threads[MAX_THREAD_COUNT];
 };
 
 
@@ -187,12 +112,25 @@ struct ReturnObject
 {
     struct promise_type
     {
-        ReturnObject get_return_object() { return {}; }
+        ReturnObject get_return_object()
+        {
+            return {
+              .h_ = std::coroutine_handle<promise_type>::from_promise(*this)
+            };
+        }
         std::suspend_never initial_suspend() const noexcept { return {}; }
-        std::suspend_never final_suspend() noexcept { return {}; }
+
+        // final_suspend() needs to return std::suspend_always to use the coroutine_handle
+        // See co_return section at https://www.scs.stanford.edu/~dm/blog/c++-coroutines.html#the-co_return-operator
+        std::suspend_always final_suspend() noexcept { return {}; }
         void return_void() noexcept {}
         void unhandled_exception() noexcept {}
     };
+
+    std::coroutine_handle<promise_type> h_;
+    operator std::coroutine_handle<promise_type>() const { return h_; }
+    // A coroutine_handle<promise_type> converts to coroutine_handle<>
+    operator std::coroutine_handle<>() const { return h_; }
 };
 
 struct Awaiter
@@ -223,9 +161,22 @@ ReturnObject Counter(CThreadPool* pThreadpool, unsigned counter) noexcept
 int main()
 {
     CThreadPool threadPool;
+    std::vector<std::coroutine_handle<>> coro_handles;
 
     for (unsigned i = 0; i < 1000; ++i)
-        Counter(&threadPool, i);
+        coro_handles.push_back(Counter(&threadPool, i));
+
+    for (unsigned i = 0; i < 1000; ++i)
+    {
+        while (!coro_handles[i].done())
+        {
+            Sleep(10);
+        }
+
+        coro_handles[i].destroy();
+
+        printf("%03d: Done\n", i);
+    }
 
     threadPool.StartShutDown();
     threadPool.Shutdown();
