@@ -2,8 +2,9 @@
 #include <Msp.h>
 #include <Msputils.h>
 #include <cstdio>
+#include <coroutine>
 #include <future>
-using namespace std::experimental;
+//using namespace std::experimental;
 
 LIST_ENTRY g_someQueue;
 
@@ -25,6 +26,17 @@ struct Dequeue
     int await_resume() { return m_result; }
 };
 
+struct ReturnObject
+{
+    struct promise_type
+    {
+        ReturnObject get_return_object() { return {}; }
+        std::suspend_never initial_suspend() { return {}; }
+        std::suspend_never final_suspend() noexcept { return {}; }
+        void unhandled_exception() {}
+    };
+};
+
 void ReleaseAll(int result)
 {
     while (!IsListEmpty(&g_someQueue)) {
@@ -37,7 +49,7 @@ void ReleaseAll(int result)
 
 auto operator co_await(LIST_ENTRY &q) { return Dequeue(q); }
 
-std::future<void> f(int no)
+ReturnObject f(int no)
 {
     auto result = co_await g_someQueue;
     printf("%03d(%04x): got %d\n", no, GetCurrentThreadId(), result);
