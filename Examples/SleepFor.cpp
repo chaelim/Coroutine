@@ -28,10 +28,10 @@ public:
 
     bool await_ready() const { return m_duration.count() <= 0; }
     void await_resume() {}
-    void await_suspend(std::coroutine_handle<> coro)
+    void await_suspend(std::coroutine_handle<> h)
     {
         int64_t relative_count = -m_duration.count();
-        m_timer = CreateThreadpoolTimer(&TimerCallback, coro.address(), nullptr);
+        m_timer = CreateThreadpoolTimer(&TimerCallback, h.address(), nullptr);
         assert(m_timer && "terrible, just terrible");
         SetThreadpoolTimer(m_timer, (PFILETIME)&relative_count, 0, 0);
     }
@@ -42,8 +42,9 @@ public:
     }
 };
 
-auto sleep_for(std::chrono::system_clock::duration duration) {
-  return Awaiter{duration};
+auto sleep_for(std::chrono::system_clock::duration duration)
+{
+    return Awaiter{duration};
 }
 
 struct ReturnObject
