@@ -27,7 +27,6 @@ public:
     explicit Awaiter(std::chrono::system_clock::duration d) : m_duration(d) { }
 
     bool await_ready() const { return m_duration.count() <= 0; }
-    void await_resume() {}
     void await_suspend(std::coroutine_handle<> h)
     {
         int64_t relative_count = -m_duration.count();
@@ -35,6 +34,8 @@ public:
         assert(m_timer && "terrible, just terrible");
         SetThreadpoolTimer(m_timer, (PFILETIME)&relative_count, 0, 0);
     }
+    void await_resume() {}
+
     ~Awaiter()
     {
         if (m_timer)
