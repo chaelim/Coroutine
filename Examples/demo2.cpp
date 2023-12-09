@@ -8,7 +8,8 @@
 #include <coroutine>
 //using namespace std::experimental;
 
-struct Awaitable
+// Synchronous awaitable. Return 42 immediately to the calling thread.
+struct SynchronousAwaitable
 {
     bool await_ready() { return true; }
     int await_resume() { return 42; }
@@ -19,21 +20,22 @@ struct ReturnObject
 {
     struct promise_type
     {
-        int value = 0;
+        using handle_t = std::coroutine_handle<promise_type>;
 
-        ReturnObject get_return_object() { return ReturnObject(std::coroutine_handle<promise_type>::from_promise(*this)); }
+        ReturnObject get_return_object()
+        {
+            return ReturnObject { handle_t::from_promise(*this) };
+        }
+
         std::suspend_never initial_suspend() { return {}; }
         std::suspend_never final_suspend() noexcept { return {}; }
         void unhandled_exception() {}
         void return_value(int v) noexcept { value = v; }
+
+        int value = 0;
     };
 
-    ReturnObject(std::coroutine_handle<promise_type> coro) noexcept : m_coro(coro) { }
-	~ReturnObject()
-	{
-		if (m_coro)
-			m_coro.destroy();
-	}
+    explicit ReturnObject(promise_type::handle_t coro) noexcept : m_coro(coro) { }
 
     int get() const noexcept { return m_coro.promise().value; }
 
@@ -43,9 +45,8 @@ struct ReturnObject
 ReturnObject f()
 {
     printf("%x: Hello\n", GetCurrentThreadId());
-    int ret = co_await Awaitable();
-    printf("%d\n", ret);
-    printf("%x: Hello\n", GetCurrentThreadId());
+    int ret = co_await SynchronousAwaitable();
+    printf("%x: Return %d\n", GetCurrentThreadId(), ret);
     co_return ret;
 }
 

@@ -21,9 +21,9 @@ struct simple
 
 		int value = 0;
 
-		auto get_return_object() noexcept { return simple(std::coroutine_handle<promise_type>::from_promise(*this)); }
-		auto initial_suspend() noexcept { return std::suspend_never{}; }
-		auto final_suspend() noexcept { return std::suspend_always{}; }
+		simple get_return_object() noexcept { return simple(std::coroutine_handle<promise_type>::from_promise(*this)); }
+		std::suspend_never initial_suspend() noexcept { return {}; }
+		std::suspend_always final_suspend() noexcept { return {}; }
 		void unhandled_exception() noexcept { }
 		void return_value(int v) noexcept { value = v; }
 	};

@@ -13,7 +13,7 @@ DWORD g_mainThread;
 // Awaiter type
 struct NotOnMainThread
 {
-    static void callback(_Inout_ PTP_CALLBACK_INSTANCE Instance, _Inout_opt_ PVOID Context)
+    static void callback(_Inout_ PTP_CALLBACK_INSTANCE Instance, _Inout_opt_ PVOID Context) noexcept
     {
         printf("inside callback: %x\n", GetCurrentThreadId());
         std::coroutine_handle<>::from_address(Context).resume();
@@ -23,13 +23,13 @@ struct NotOnMainThread
 
     // The purpose of the await_ready() method is to allow you to avoid the cost of the <suspend-coroutine> operation
     // in cases where it is known that the operation will complete synchronously without needing to suspend.
-    bool await_ready() { return GetCurrentThreadId() != g_mainThread; }
+    bool await_ready() const noexcept { return GetCurrentThreadId() != g_mainThread; }
 
     // It is the responsibility of the `await_suspend()` method to schedule the coroutine
     // for resumption (or destruction) at some point in the future once the operation has completed.
     // Note that returning false from `await_suspend()` counts as scheduling the coroutine
     // for immediate resumption on the current thread.
-    bool await_suspend(std::coroutine_handle<> h)
+    bool await_suspend(std::coroutine_handle<> h) noexcept
     {
         bool submitted = TrySubmitThreadpoolCallback(&callback, h.address(), nullptr);
         if (!submitted)
@@ -46,7 +46,7 @@ struct NotOnMainThread
     // The await_resume() method can also throw an exception in which case the exception propagates out of the co_await expression.
     // Note that if an exception propagates out of the await_suspend() call then the coroutine is automatically resumed
     // and the exception propagates out of the co_await expression without calling await_resume().
-    DWORD await_resume() { return m_error; }
+    DWORD await_resume() const noexcept { return m_error; }
 };
 
 // The caller-level type
@@ -56,15 +56,15 @@ struct Task
     {
         using handle_t = std::coroutine_handle<promise_type>;
 
-        Task get_return_object()
+        Task get_return_object() noexcept
         {
             return Task { handle_t::from_promise(*this) };
         }
 
         std::suspend_never initial_suspend() const noexcept { return {}; }
 
-        // final_suspend() needs to return std::suspend_always to use the coroutine_handle
-        // without this, the promise would be destructed as the corountine finishes running.
+        // final_suspend() needs to return std::suspend_always to use the coroutine_handle and the result of the coroutine.
+        // without this, the promise would be destructed as the coroutine finishes running.
         // We also need to write a Task destructor since the coroutine must be explicitly destroyed.
         // See co_return section at https://www.scs.stanford.edu/~dm/blog/c++-coroutines.html#the-co_return-operator
         std::suspend_always final_suspend() noexcept { return {}; }
@@ -92,12 +92,13 @@ struct Task
 
     ~Task() noexcept
     {
-        // it's necessary to destroy when initial_suspend returns std::suspend_always
+        // It's necessary to destroy when a coroutine is suspended (i.e. initial_suspend or final_suspend returns std::suspend_always)
+        // Otherwise, it'll leak the coroutine.
         // See https://en.cppreference.com/w/cpp/coroutine/coroutine_handle#Example
-        //if (m_coroutine)
-        //{
-        //    m_coroutine.destroy();
-        //}
+        if (m_coroutine)
+        {
+            m_coroutine.destroy();
+        }
     }
 
     DWORD result() const noexcept { return m_coroutine.promise().result(); }
