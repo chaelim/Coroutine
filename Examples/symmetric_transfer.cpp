@@ -2,115 +2,120 @@
 // Example source code for blog post:
 // "C++ Coroutines: Understanding Symmetric-Transfer"
 //
-// Implementation of a naive 'task' coroutine type.
+// Implementation of a naive 'Task' coroutine type.
 
 #include <coroutine>
 #include <iostream>
 
-
-class task {
+class Task
+{
 public:
-  class promise_type {
+  class promise_type
+  {
   public:
-    task get_return_object() noexcept {
-      return task{std::coroutine_handle<promise_type>::from_promise(*this)};
+    Task get_return_object() noexcept
+    {
+      return Task{std::coroutine_handle<promise_type>::from_promise(*this)};
     }
 
-    suspend_always initial_suspend() noexcept {
-      return {};
-    }
+    std::suspend_always initial_suspend() noexcept { return {}; }
 
     void return_void() noexcept {}
 
-    void unhandled_exception() noexcept {
+    void unhandled_exception() noexcept
+    {
       std::terminate();
     }
 
-    struct final_awaiter {
-      bool await_ready() noexcept {
-        return false;
-      }
-      coroutine_handle<> await_suspend(std::coroutine_handle<promise_type> h) noexcept {
+    struct final_awaiter
+    {
+      bool await_ready() noexcept { return false; }
+      
+      std::coroutine_handle<> await_suspend(std::coroutine_handle<promise_type> h) noexcept
+      {
         return h.promise().continuation;
       }
+      
       void await_resume() noexcept {}
     };
 
-    final_awaiter final_suspend() noexcept {
-      return {};
-    }
+    final_awaiter final_suspend() noexcept { return {}; }
 
-    coroutine_handle<> continuation;
+    std::coroutine_handle<> continuation;
   };
 
-  task(task&& t) noexcept
+  Task(Task&& t) noexcept
   : coro_(std::exchange(t.coro_, {}))
   {}
 
-  ~task() {
+  ~Task()
+  {
     if (coro_)
       coro_.destroy();
   }
 
-  class awaiter {
+  class awaiter
+  {
   public:
-    bool await_ready() noexcept {
-      return false;
-    }
+    bool await_ready() noexcept { return false; }
 
-    coroutine_handle<> await_suspend(coroutine_handle<> continuation) noexcept {
-      // Store the continuation in the task's promise so that the final_suspend()
-      // knows to resume this coroutine when the task completes.
+    std::coroutine_handle<> await_suspend(std::coroutine_handle<> continuation) noexcept
+    {
+      // Store the continuation in the Task's promise so that the final_suspend()
+      // knows to resume this coroutine when the Task completes.
       coro_.promise().continuation = continuation;
 
-      // Then we resume the task's coroutine, which is currently suspended
+      // Then we resume the Task's coroutine, which is currently suspended
       // at the initial-suspend-point (ie. at the open curly brace).
       return coro_;
     }
 
     void await_resume() noexcept {}
+
   private:
-    friend task;
-    explicit awaiter(coroutine_handle<promise_type> h) noexcept
+    friend Task;
+    explicit awaiter(std::coroutine_handle<promise_type> h) noexcept
     : coro_(h)
     {}
 
-    coroutine_handle<promise_type> coro_;
+    std::coroutine_handle<promise_type> coro_;
   };
 
-  awaiter operator co_await() && noexcept {
-    return awaiter{coro_};
-  }
+  awaiter operator co_await() && noexcept { return awaiter{coro_}; }
 
 private:
-  explicit task(coroutine_handle<promise_type> h) noexcept
+  explicit Task(std::coroutine_handle<promise_type> h) noexcept
   : coro_(h)
   {}
 
-  coroutine_handle<promise_type> coro_;
+  std::coroutine_handle<promise_type> coro_;
 };
 
 
-struct sync_wait_task {
-    struct promise_type {
-        sync_wait_task get_return_object() noexcept {
-            return sync_wait_task{coroutine_handle<promise_type>::from_promise(*this)};
+struct sync_wait_task
+{
+    struct promise_type
+    {
+        sync_wait_task get_return_object() noexcept
+        {
+            return sync_wait_task{std::coroutine_handle<promise_type>::from_promise(*this)};
         }
 
-        suspend_never initial_suspend() noexcept { return{}; }
+        std::suspend_never initial_suspend() noexcept { return{}; }
         
-        suspend_always final_suspend() noexcept { return{}; }
+        std::suspend_always final_suspend() noexcept { return{}; }
 
         void return_void() noexcept {}
 
         void unhandled_exception() noexcept { std::terminate(); }
     };
 
-    coroutine_handle<promise_type> coro_;
+    std::coroutine_handle<promise_type> coro_;
 
-    explicit sync_wait_task(coroutine_handle<promise_type> h) noexcept : coro_(h) {}
+    explicit sync_wait_task(std::coroutine_handle<promise_type> h) noexcept : coro_(h) {}
 
-    sync_wait_task(sync_wait_task&& t) noexcept : coro_(t.coro_) {
+    sync_wait_task(sync_wait_task&& t) noexcept : coro_(t.coro_)
+    {
         t.coro_ = {};
     }
 
@@ -120,20 +125,24 @@ struct sync_wait_task {
         }
     }
 
-    static sync_wait_task start(task&& t) {
+    static sync_wait_task start(Task&& t)
+    {
         co_await std::move(t);
     }
 
-    bool done() {
+    bool done()
+    {
         return coro_.done();
     }
 };
 
-struct manual_executor {
-    struct schedule_op {
+struct manual_executor
+{
+    struct schedule_op
+    {
         manual_executor& executor_;
         schedule_op* next_ = nullptr;
-        coroutine_handle<> continuation_;
+        std::coroutine_handle<> continuation_;
 
         schedule_op(manual_executor& executor)
         : executor_(executor)
@@ -141,7 +150,8 @@ struct manual_executor {
 
         bool await_ready() noexcept { return false; }
 
-        void await_suspend(coroutine_handle<> continuation) noexcept {
+        void await_suspend(std::coroutine_handle<> continuation) noexcept
+        {
             continuation_ = continuation;
             next_ = executor_.head_;
             executor_.head_ = this;
@@ -156,36 +166,44 @@ struct manual_executor {
         return schedule_op{*this};
     }
 
-    void drain() {
-        while (head_ != nullptr) {
+    void drain()
+    {
+        while (head_ != nullptr)
+        {
             auto* item = head_;
             head_ = item->next_;
             item->continuation_.resume();
         }
     }
 
-    void sync_wait(task&& t) {
+    void sync_wait(Task&& t)
+    {
         auto t2 = sync_wait_task::start(std::move(t));
-        while (!t2.done()) {
+        while (!t2.done())
+        {
             drain();
         }
     }
 };
 
-task completes_synchronously() {
+Task completes_synchronously()
+{
     co_return;
 }
 
 
-task loop_synchronously(int count) {
+Task loop_synchronously(int count)
+{
     std::cout << "loop_synchronously(" << count << ")" << std::endl;
-    for (int i = 0; i < count; ++i) {
+    for (int i = 0; i < count; ++i)
+    {
         co_await completes_synchronously();
     }
     std::cout << "loop_synchronously(" << count << ") returning" << std::endl;
 }
 
-int main() {
+int main()
+{
     manual_executor ex;
     ex.sync_wait(loop_synchronously(100));
     ex.sync_wait(loop_synchronously(1000));

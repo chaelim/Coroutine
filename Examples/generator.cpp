@@ -27,7 +27,7 @@ public:
             current_value = std::move(value);
             return {};
         }
-		void return_void() {}
+        void return_void() {}
 
         // Disallow co_await in generator coroutines.
         void await_transform() = delete;
