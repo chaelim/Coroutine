@@ -117,6 +117,7 @@ Generator<T> range(T first, const T last)
  
 int main()
 {
+    // iterator will automatically resume the coroutine and return value.
     for (const char i : range(65, 91))
         std::cout << i << ' ';
     std::cout << '\n';

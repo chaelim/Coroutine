@@ -1,3 +1,7 @@
+//
+// cl /std:c++20 /await:strict /await:heapelide /O2 /Zi /EHsc /Fe.\_build\ co_shuttle.cpp
+// Add "/FAcs" for .asm
+//
 #include <coroutine>
 #include <iostream>
 #include <optional>
